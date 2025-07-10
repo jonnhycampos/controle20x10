@@ -96,13 +96,18 @@
     <script type="module">
         // Importa as funções necessárias do Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Variáveis globais do ambiente Canvas
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // Configuração do Firebase fornecida pelo usuário
+        const firebaseConfig = {
+            apiKey: "AIzaSyChDHZL31X9gWc42N13x-suvOOk3tMENa4",
+            authDomain: "projeto-20x10-app.firebaseapp.com",
+            projectId: "projeto-20x10-app",
+            storageBucket: "projeto-20x10-app.firebasestorage.app",
+            messagingSenderId: "666401261357",
+            appId: "1:666401261357:web:259aa5a7b1b0cfc93935a4"
+        };
 
         // Inicializa o Firebase
         const app = initializeApp(firebaseConfig);
@@ -110,8 +115,8 @@
         const auth = getAuth(app);
 
         // Referência à coleção de participantes
-        // Usando o caminho público conforme as regras de segurança do Firestore
-        const participantsColRef = collection(db, `artifacts/${appId}/public/data/participants`);
+        // Usando o caminho público e o projectId da configuração do Firebase
+        const participantsColRef = collection(db, `artifacts/${firebaseConfig.projectId}/public/data/participants`);
 
         // Elementos do DOM
         const participantsListDiv = document.getElementById('participants-list');
@@ -477,14 +482,15 @@
         // Inicia o processo de autenticação e carregamento de dados
         window.onload = async () => {
             try {
-                // Tenta autenticar com o token personalizado se disponível, caso contrário, anonimamente
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                    console.log("Autenticado com token personalizado.");
-                } else {
-                    await signInAnonymously(auth);
-                    console.log("Autenticado anonimamente.");
-                }
+                // Log da configuração do Firebase para depuração
+                console.log("Configuração do Firebase:", firebaseConfig);
+
+                // Autentica anonimamente
+                // IMPORTANTE: Para evitar o erro "auth/configuration-not-found",
+                // você deve habilitar o provedor de autenticação "Anônima" no console do Firebase.
+                // Vá em: Authentication -> Sign-in method -> Anonymous -> Habilitar.
+                await signInAnonymously(auth);
+                console.log("Autenticado anonimamente.");
 
                 // Inicializa os dados se a coleção estiver vazia
                 await initializeData();
@@ -504,7 +510,12 @@
 
             } catch (error) {
                 console.error("Erro na inicialização do Firebase ou autenticação:", error);
-                showModal("Erro Crítico", "Não foi possível iniciar o aplicativo. Verifique as configurações do Firebase.", "alert");
+                // Mensagem específica para o erro de configuração de autenticação
+                if (error.code === 'auth/configuration-not-found') {
+                    showModal("Erro de Configuração do Firebase", "O método de autenticação anônima não está habilitado em seu projeto Firebase. Por favor, habilite-o no console do Firebase.", "alert");
+                } else {
+                    showModal("Erro Crítico", "Não foi possível iniciar o aplicativo. Verifique as configurações do Firebase.", "alert");
+                }
             }
         };
     </script>
