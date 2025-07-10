@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projeto 20x10 - Controle de Progresso</title>
+    <!-- Tailwind CSS CDN para estilização rápida e responsiva -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonte Inter do Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5; /* Fundo cinza claro */
+        }
+        /* Estilos para a barra de progresso */
+        .progress-bar-container {
+            background-color: #e0e0e0;
+            border-radius: 9999px; /* Arredondado */
+            height: 8px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            border-radius: 9999px; /* Arredondado */
+            transition: width 0.3s ease-in-out;
+        }
+        /* Estilo para o modal */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.6);
+        }
+        .modal-content {
+            background-color: #ffffff;
+            border-radius: 1rem; /* Arredondado */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-6 md:p-8">
+        <h1 class="text-3xl md:text-4xl font-bold text-center text-gray-800 mb-8">
+            🏆 Projeto 20x10 - Ranking de Progresso 🥗🏋️‍♂️
+        </h1>
+
+        <!-- Container para a lista de participantes -->
+        <div id="participants-list" class="space-y-4">
+            <!-- Participantes serão carregados aqui pelo JavaScript -->
+            <div class="flex items-center justify-center py-10">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+                <p class="ml-4 text-gray-700">Carregando dados...</p>
+            </div>
+        </div>
+
+        <!-- Seção para Adicionar Novo Participante -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 mt-8 border border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Adicionar Novo Participante</h2>
+            <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
+                <input type="text" id="new-participant-name" placeholder="Nome do Participante"
+                       class="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="add-new-participant-button"
+                        class="px-6 py-3 bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 transition duration-200">
+                    Adicionar Participante
+                </button>
+            </div>
+        </div>
+
+        <!-- Seção para Remover Participante -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 mt-4 border border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Remover Participante</h2>
+            <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
+                <select id="remove-participant-select"
+                        class="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="">Selecione um participante</option>
+                    <!-- Options will be populated by JS -->
+                </select>
+                <button id="remove-participant-button"
+                        class="px-6 py-3 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 transition duration-200">
+                    Remover Participante
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmação/Mensagem -->
+    <div id="confirmation-modal" class="fixed inset-0 flex items-center justify-center z-50 hidden modal-overlay">
+        <div class="modal-content p-6 max-w-sm w-full mx-4">
+            <h3 id="modal-title" class="text-xl font-semibold text-gray-800 mb-4"></h3>
+            <p id="modal-message" class="text-gray-700 mb-6"></p>
+            <div id="modal-buttons" class="flex justify-end space-x-3">
+                <!-- Botões serão adicionados via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        // Importa as funções necessárias do Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Variáveis globais do ambiente Canvas
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Inicializa o Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // Referência à coleção de participantes
+        // Usando o caminho público conforme as regras de segurança do Firestore
+        const participantsColRef = collection(db, `artifacts/${appId}/public/data/participants`);
+
+        // Elementos do DOM
+        const participantsListDiv = document.getElementById('participants-list');
+        const confirmationModal = document.getElementById('confirmation-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalButtons = document.getElementById('modal-buttons');
+
+        const newParticipantNameInput = document.getElementById('new-participant-name');
+        const addNewParticipantButton = document.getElementById('add-new-participant-button');
+        const removeParticipantSelect = document.getElementById('remove-participant-select');
+        const removeParticipantButton = document.getElementById('remove-participant-button');
+
+        // Função para mostrar o modal
+        function showModal(title, message, type, confirmCallback = null) {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            modalButtons.innerHTML = ''; // Limpa botões anteriores
+
+            if (type === 'confirm') {
+                const cancelButton = document.createElement('button');
+                cancelButton.textContent = 'Não';
+                cancelButton.className = 'px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition duration-200';
+                cancelButton.onclick = () => hideModal();
+
+                const confirmButton = document.createElement('button');
+                confirmButton.textContent = 'Sim';
+                confirmButton.className = 'px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-200';
+                confirmButton.onclick = () => {
+                    if (confirmCallback) confirmCallback();
+                    hideModal();
+                };
+                modalButtons.appendChild(cancelButton);
+                modalButtons.appendChild(confirmButton);
+            } else { // type === 'alert'
+                const okButton = document.createElement('button');
+                okButton.textContent = 'OK';
+                okButton.className = 'px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-200';
+                okButton.onclick = () => hideModal();
+                modalButtons.appendChild(okButton);
+            }
+            confirmationModal.classList.remove('hidden');
+        }
+
+        // Função para esconder o modal
+        function hideModal() {
+            confirmationModal.classList.add('hidden');
+        }
+
+        // Dados iniciais dos participantes
+        const initialParticipantsData = [
+            { name: "Maria", treinosConcluidos: 12, treinosMeta: 20, refeicoesConcluidas: 3, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Jonnhy", treinosConcluidos: 13, treinosMeta: 20, refeicoesConcluidas: 5, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Li", treinosConcluidos: 10, treinosMeta: 20, refeicoesConcluidas: 7, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Sheila", treinosConcluidos: 13, treinosMeta: 20, refeicoesConcluidas: 1, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Eliton", treinosConcluidos: 6, treinosMeta: 20, refeicoesConcluidas: 9, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Rosangela", treinosConcluidos: 18, treinosMeta: 20, refeicoesConcluidas: 5, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Victor", treinosConcluidos: 0, treinosMeta: 20, refeicoesConcluidas: 0, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Denise", treinosConcluidos: 2, treinosMeta: 20, refeicoesConcluidas: 7, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 }, // Assumindo 2/20
+            { name: "Shirley", treinosConcluidos: 7, treinosMeta: 20, refeicoesConcluidas: 10, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 }, // Cap 13/10 para 10/10
+            { name: "Silvana", treinosConcluidos: 18, treinosMeta: 20, refeicoesConcluidas: 10, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Vanessa", treinosConcluidos: 6, treinosMeta: 20, refeicoesConcluidas: 10, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Débora", treinosConcluidos: 12, treinosMeta: 20, refeicoesConcluidas: 9, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 },
+            { name: "Larissa", treinosConcluidos: 8, treinosMeta: 20, refeicoesConcluidas: 5, refeicoesMeta: 10, lastTrainingAddedAt: 0, lastMealAddedAt: 0, lastTrainingRemovedAt: 0, lastMealRemovedAt: 0 }
+        ];
+
+        // Função para inicializar os dados no Firestore se a coleção estiver vazia
+        async function initializeData() {
+            try {
+                const snapshot = await getDocs(participantsColRef);
+                if (snapshot.empty) {
+                    console.log("Coleção de participantes vazia. Adicionando dados iniciais...");
+                    for (const data of initialParticipantsData) {
+                        // Usa o nome como ID do documento para fácil referência
+                        await setDoc(doc(participantsColRef, data.name.toLowerCase()), data);
+                    }
+                    console.log("Dados iniciais adicionados com sucesso.");
+                } else {
+                    console.log("Coleção de participantes já contém dados.");
+                }
+            } catch (error) {
+                console.error("Erro ao inicializar dados:", error);
+                showModal("Erro", "Não foi possível inicializar os dados. Verifique a conexão ou permissões.", "alert");
+            }
+        }
+
+        // Função para renderizar a lista de participantes
+        function renderParticipants(participants) {
+            // Ordena os participantes: primeiro por treinos (desc), depois por refeições (desc), depois por nome (asc)
+            const sortedParticipants = participants.sort((a, b) => {
+                if (b.treinosConcluidos !== a.treinosConcluidos) {
+                    return b.treinosConcluidos - a.treinosConcluidos;
+                }
+                if (b.refeicoesConcluidas !== a.refeicoesConcluidas) {
+                    return b.refeicoesConcluidas - a.refeicoesConcluidas;
+                }
+                return a.name.localeCompare(b.name);
+            });
+
+            participantsListDiv.innerHTML = ''; // Limpa a lista atual
+
+            if (sortedParticipants.length === 0) {
+                participantsListDiv.innerHTML = '<p class="text-center text-gray-600">Nenhum participante encontrado.</p>';
+                return;
+            }
+
+            sortedParticipants.forEach(participant => {
+                const participantCard = document.createElement('div');
+                participantCard.className = 'bg-white rounded-xl shadow-md p-4 flex flex-col md:flex-row items-center justify-between transition-all duration-300 hover:shadow-lg';
+                participantCard.innerHTML = `
+                    <div class="flex-1 text-center md:text-left mb-4 md:mb-0">
+                        <h2 class="text-xl font-semibold text-gray-900 mb-1">${participant.name}</h2>
+                        <div class="flex flex-col sm:flex-row sm:space-x-4 items-center justify-center md:justify-start text-gray-700 text-sm">
+                            <p class="mb-1 sm:mb-0">🏋️‍♂️ Treinos: ${participant.treinosConcluidos}/${participant.treinosMeta}</p>
+                            <p>🥗 Refeições: ${participant.refeicoesConcluidas}/${participant.refeicoesMeta}</p>
+                        </div>
+                        <!-- Barras de progresso -->
+                        <div class="mt-3 w-full">
+                            <p class="text-xs text-gray-500 mb-1">Progresso de Treinos:</p>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar bg-green-500" style="width: ${Math.min(100, (participant.treinosConcluidos / participant.treinosMeta) * 100)}%;"></div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2 mb-1">Progresso de Refeições:</p>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar bg-yellow-500" style="width: ${Math.min(100, (participant.refeicoesConcluidas / participant.refeicoesMeta) * 100)}%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex flex-col space-y-2">
+                        <div class="flex space-x-2">
+                            <button data-id="${participant.name.toLowerCase()}" data-type="treino"
+                                    class="add-button px-3 py-1 bg-blue-500 text-white rounded-lg shadow-md hover:bg-blue-600 transition duration-200 text-sm">
+                                + Treino
+                            </button>
+                            <button data-id="${participant.name.toLowerCase()}" data-type="refeicao"
+                                    class="add-button px-3 py-1 bg-purple-500 text-white rounded-lg shadow-md hover:bg-purple-600 transition duration-200 text-sm">
+                                + Refeição
+                            </button>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button data-id="${participant.name.toLowerCase()}" data-type="treino"
+                                    class="remove-button px-3 py-1 bg-red-500 text-white rounded-lg shadow-md hover:bg-red-600 transition duration-200 text-sm">
+                                - Treino
+                            </button>
+                            <button data-id="${participant.name.toLowerCase()}" data-type="refeicao"
+                                    class="remove-button px-3 py-1 bg-orange-500 text-white rounded-lg shadow-md hover:bg-orange-600 transition duration-200 text-sm">
+                                - Refeição
+                            </button>
+                        </div>
+                    </div>
+                `;
+                participantsListDiv.appendChild(participantCard);
+            });
+
+            // Adiciona event listeners aos botões de adicionar
+            document.querySelectorAll('.add-button').forEach(button => {
+                button.onclick = (event) => {
+                    const participantId = event.currentTarget.dataset.id;
+                    const type = event.currentTarget.dataset.type;
+                    addProgress(participantId, type);
+                };
+            });
+
+            // Adiciona event listeners aos botões de remover
+            document.querySelectorAll('.remove-button').forEach(button => {
+                button.onclick = (event) => {
+                    const participantId = event.currentTarget.dataset.id;
+                    const type = event.currentTarget.dataset.type;
+                    removeProgress(participantId, type);
+                };
+            });
+
+            // Popula o seletor de remoção de participante
+            populateRemoveParticipantSelect(sortedParticipants);
+        }
+
+        // Função para popular o dropdown de remover participante
+        function populateRemoveParticipantSelect(participants) {
+            removeParticipantSelect.innerHTML = '<option value="">Selecione um participante</option>'; // Limpa e adiciona opção padrão
+            participants.forEach(participant => {
+                const option = document.createElement('option');
+                option.value = participant.id; // Usa o ID (nome em minúsculas) como valor
+                option.textContent = participant.name; // Usa o nome original para exibição
+                removeParticipantSelect.appendChild(option);
+            });
+        }
+
+        // Função para adicionar um novo participante
+        async function addNewParticipant() {
+            const name = newParticipantNameInput.value.trim();
+            if (!name) {
+                showModal("Erro", "Por favor, insira um nome para o novo participante.", "alert");
+                return;
+            }
+
+            const participantId = name.toLowerCase();
+            const participantDocRef = doc(participantsColRef, participantId);
+
+            try {
+                const docSnap = await getDoc(participantDocRef);
+                if (docSnap.exists()) {
+                    showModal("Erro", `O participante "${name}" já existe.`, "alert");
+                    return;
+                }
+
+                const newParticipantData = {
+                    name: name,
+                    treinosConcluidos: 0,
+                    treinosMeta: 20,
+                    refeicoesConcluidas: 0,
+                    refeicoesMeta: 10,
+                    lastTrainingAddedAt: 0,
+                    lastMealAddedAt: 0,
+                    lastTrainingRemovedAt: 0,
+                    lastMealRemovedAt: 0
+                };
+
+                await setDoc(participantDocRef, newParticipantData);
+                showModal("Sucesso", `Participante "${name}" adicionado com sucesso!`, "alert");
+                newParticipantNameInput.value = ''; // Limpa o campo
+            } catch (error) {
+                console.error("Erro ao adicionar novo participante:", error);
+                showModal("Erro", "Não foi possível adicionar o participante. Tente novamente.", "alert");
+            }
+        }
+
+        // Função para remover o participante selecionado
+        async function removeSelectedParticipant() {
+            const participantId = removeParticipantSelect.value;
+            const participantName = removeParticipantSelect.options[removeParticipantSelect.selectedIndex].text;
+
+            if (!participantId) {
+                showModal("Erro", "Por favor, selecione um participante para remover.", "alert");
+                return;
+            }
+
+            showModal("Confirmação", `Tem certeza que deseja remover "${participantName}"? Esta ação é irreversível.`, "confirm", async () => {
+                const participantDocRef = doc(participantsColRef, participantId);
+                try {
+                    await deleteDoc(participantDocRef);
+                    showModal("Sucesso", `Participante "${participantName}" removido com sucesso!`, "alert");
+                    removeParticipantSelect.value = ''; // Reseta o seletor
+                } catch (error) {
+                    console.error("Erro ao remover participante:", error);
+                    showModal("Erro", "Não foi possível remover o participante. Tente novamente.", "alert");
+                }
+            });
+        }
+
+
+        // Função para adicionar progresso (treino ou refeição)
+        async function addProgress(participantId, type) {
+            const participantDocRef = doc(participantsColRef, participantId);
+            try {
+                const docSnap = await getDoc(participantDocRef);
+                if (!docSnap.exists()) {
+                    showModal("Erro", "Participante não encontrado.", "alert");
+                    return;
+                }
+
+                const data = docSnap.data();
+                let currentCount, lastAddedAtField, countField;
+                let confirmationMessage = '';
+
+                if (type === 'treino') {
+                    currentCount = data.treinosConcluidos;
+                    lastAddedAtField = 'lastTrainingAddedAt';
+                    countField = 'treinosConcluidos';
+                    confirmationMessage = `Você já adicionou um Treino para ${data.name} recentemente. Tem certeza que deseja adicionar outro?`;
+                } else { // type === 'refeicao'
+                    currentCount = data.refeicoesConcluidas;
+                    lastAddedAtField = 'lastMealAddedAt';
+                    countField = 'refeicoesConcluidas';
+                    confirmationMessage = `Você já adicionou uma Refeição para ${data.name} recentemente. Tem certeza que deseja adicionar outra?`;
+                }
+
+                const now = Date.now();
+                const lastAddedTimestamp = data[lastAddedAtField] || 0;
+                const timeDiff = now - lastAddedTimestamp; // Diferença em milissegundos
+                const COOLDOWN_PERIOD_MS = 5000; // 5 segundos de cooldown para confirmação
+
+                const updateProgress = async () => {
+                    const newCount = currentCount + 1;
+                    const updateData = {
+                        [countField]: newCount,
+                        [lastAddedAtField]: now
+                    };
+                    await setDoc(participantDocRef, { ...data, ...updateData });
+                    console.log(`${type === 'treino' ? 'Treino' : 'Refeição'} adicionado(a) para ${data.name}!`);
+                };
+
+                if (timeDiff < COOLDOWN_PERIOD_MS) {
+                    showModal("Confirmação Necessária", confirmationMessage, "confirm", updateProgress);
+                } else {
+                    await updateProgress();
+                }
+
+            } catch (error) {
+                console.error(`Erro ao adicionar ${type}:`, error);
+                showModal("Erro", `Não foi possível adicionar ${type}. Tente novamente.`, "alert");
+            }
+        }
+
+        // Função para remover progresso (treino ou refeição)
+        async function removeProgress(participantId, type) {
+            const participantDocRef = doc(participantsColRef, participantId);
+            try {
+                const docSnap = await getDoc(participantDocRef);
+                if (!docSnap.exists()) {
+                    showModal("Erro", "Participante não encontrado.", "alert");
+                    return;
+                }
+
+                const data = docSnap.data();
+                let currentCount, lastRemovedAtField, countField;
+                let confirmationMessage = '';
+
+                if (type === 'treino') {
+                    currentCount = data.treinosConcluidos;
+                    lastRemovedAtField = 'lastTrainingRemovedAt'; // Novo campo para controle de remoção
+                    countField = 'treinosConcluidos';
+                    confirmationMessage = `Você já removeu um Treino para ${data.name} recentemente. Tem certeza que deseja remover outro?`;
+                } else { // type === 'refeicao'
+                    currentCount = data.refeicoesConcluidas;
+                    lastRemovedAtField = 'lastMealRemovedAt'; // Novo campo para controle de remoção
+                    countField = 'refeicoesConcluidas';
+                    confirmationMessage = `Você já removeu uma Refeição para ${data.name} recentemente. Tem certeza que deseja remover outra?`;
+                }
+
+                if (currentCount <= 0) {
+                    showModal("Limite Mínimo Atingido", `${data.name} não possui ${type === 'treino' ? 'treinos' : 'refeições'} para remover.`, "alert");
+                    return;
+                }
+
+                const now = Date.now();
+                // Usar o campo de último removido ou o de último adicionado para evitar remoções muito rápidas após adições
+                const lastActionTimestamp = data[lastRemovedAtField] || data[type === 'treino' ? 'lastTrainingAddedAt' : 'lastMealAddedAt'] || 0;
+                const timeDiff = now - lastActionTimestamp; // Diferença em milissegundos
+                const COOLDOWN_PERIOD_MS = 5000; // 5 segundos de cooldown para confirmação
+
+                const updateProgress = async () => {
+                    const newCount = Math.max(0, currentCount - 1); // Garante que não vá abaixo de zero
+                    const updateData = {
+                        [countField]: newCount,
+                        [lastRemovedAtField]: now // Atualiza o timestamp da última remoção
+                    };
+                    await setDoc(participantDocRef, { ...data, ...updateData });
+                    console.log(`${type === 'treino' ? 'Treino' : 'Refeição'} removido(a) para ${data.name}!`);
+                };
+
+                if (timeDiff < COOLDOWN_PERIOD_MS) {
+                    showModal("Confirmação Necessária", confirmationMessage, "confirm", updateProgress);
+                } else {
+                    await updateProgress();
+                }
+
+            } catch (error) {
+                console.error(`Erro ao remover ${type}:`, error);
+                showModal("Erro", `Não foi possível remover ${type}. Tente novamente.`, "alert");
+            }
+        }
+
+        // Inicia o processo de autenticação e carregamento de dados
+        window.onload = async () => {
+            try {
+                // Tenta autenticar com o token personalizado se disponível, caso contrário, anonimamente
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                    console.log("Autenticado com token personalizado.");
+                } else {
+                    await signInAnonymously(auth);
+                    console.log("Autenticado anonimamente.");
+                }
+
+                // Inicializa os dados se a coleção estiver vazia
+                await initializeData();
+
+                // Escuta por mudanças na coleção de participantes em tempo real
+                onSnapshot(participantsColRef, (snapshot) => {
+                    const participantsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderParticipants(participantsData);
+                }, (error) => {
+                    console.error("Erro ao ouvir mudanças no Firestore:", error);
+                    showModal("Erro de Conexão", "Não foi possível carregar os dados em tempo real. Verifique sua conexão.", "alert");
+                });
+
+                // Adiciona event listeners para os novos botões de adicionar/remover participante
+                addNewParticipantButton.onclick = addNewParticipant;
+                removeParticipantButton.onclick = removeSelectedParticipant;
+
+            } catch (error) {
+                console.error("Erro na inicialização do Firebase ou autenticação:", error);
+                showModal("Erro Crítico", "Não foi possível iniciar o aplicativo. Verifique as configurações do Firebase.", "alert");
+            }
+        };
+    </script>
+</body>
+</html>
